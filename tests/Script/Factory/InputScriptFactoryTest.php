@@ -25,8 +25,8 @@ class InputScriptFactoryTest extends AbstractTestCase
         $txSig = TransactionSignatureFactory::fromHex($txSigHex);
 
         $script = ScriptFactory::scriptSig()->payToPubKey($txSig);
-        $parsed = $script->getScriptParser()->parse();
-        $this->assertSame($txSigHex, $parsed[0]->getHex());
+        $parsed = $script->getScriptParser()->decode();
+        $this->assertSame($txSigHex, $parsed[0]->getData()->getHex());
         $this->assertEquals(1, count($parsed));
         $this->assertEquals(InputClassifier::PAYTOPUBKEY, ScriptFactory::scriptSig()->classify($script)->classify());
     }
@@ -40,9 +40,9 @@ class InputScriptFactoryTest extends AbstractTestCase
         $publicKey = PublicKeyFactory::fromHex($publicKeyHex);
 
         $script = ScriptFactory::scriptSig()->payToPubKeyHash($txSig, $publicKey);
-        $parsed = $script->getScriptParser()->parse();
-        $this->assertSame($txSigHex, $parsed[0]->getHex());
-        $this->assertSame($publicKeyHex, $parsed[1]->getHex());
+        $parsed = $script->getScriptParser()->decode();
+        $this->assertSame($txSigHex, $parsed[0]->getData()->getHex());
+        $this->assertSame($publicKeyHex, $parsed[1]->getData()->getHex());
         $this->assertEquals(2, count($parsed));
         $this->assertEquals(InputClassifier::PAYTOPUBKEYHASH, ScriptFactory::scriptSig()->classify($script)->classify());
     }
@@ -51,19 +51,19 @@ class InputScriptFactoryTest extends AbstractTestCase
     {
         // Script::payToScriptHash should produce a ScriptHash type script, from a different script
         $private = PrivateKeyFactory::create();
-        $script = ScriptFactory::multisig(1, [$private->getPublicKey()]);
+        $script = ScriptFactory::scriptPubKey()->multisig(1, [$private->getPublicKey()]);
 
         $sigHex = '3045022100dbc87baa1b3a0225566728a0e01b8aaeedfc5a94368708bfa221302302f5458a022032df06bc5b894f848e62197d3aab328e5c8ce97ac3119ba5caacac5221d4534901';
         $sig = TransactionSignatureFactory::fromHex($sigHex);
         $sigs = [$sig];
 
-        $inputScript = ScriptFactory::scriptSig()->multisig($sigs, $script);
+        $inputScript = ScriptFactory::scriptSig()->multisig($sigs);
         $scriptHashSig = ScriptFactory::scriptSig()->payToScriptHash($inputScript, $script);
-        $parsed = $scriptHashSig->getScriptParser()->parse();
+        $parsed = $scriptHashSig->getScriptParser()->decode();
 
-        $this->assertSame('00', $parsed[0]->getHex());
-        $this->assertSame($sigHex, $parsed[1]->getHex());
-        $this->assertSame($script->getHex(), $parsed[2]->getHex());
+        $this->assertSame('', $parsed[0]->getData()->getHex());
+        $this->assertSame($sigHex, $parsed[1]->getData()->getHex());
+        $this->assertSame($script->getHex(), $parsed[2]->getData()->getHex());
         $this->assertEquals(InputClassifier::MULTISIG, ScriptFactory::scriptSig()->classify($scriptHashSig)->classify());
     }
 }

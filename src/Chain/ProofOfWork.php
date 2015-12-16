@@ -38,7 +38,7 @@ class ProofOfWork
     {
         $negative = false;
         $overflow = false;
-        return $this->math->compact()->set($bits->getInt(), $negative, $overflow);
+        return $this->math->writeCompact($bits->getInt(), $negative, $overflow);
     }
 
     /**
@@ -89,7 +89,7 @@ class ProofOfWork
     {
         $negative = false;
         $overflow = false;
-        $target = $this->math->compact()->set($nBits, $negative, $overflow);
+        $target = $this->math->writeCompact($nBits, $negative, $overflow);
         if ($negative || $overflow || $this->math->cmp($target, 0) === 0 ||  $this->math->cmp($target, $this->getMaxTarget()) > 0) {
             throw new \RuntimeException('nBits below minimum work');
         }
@@ -118,32 +118,5 @@ class ProofOfWork
     public function getWork(Buffer $bits)
     {
         return bcdiv($this->math->pow(2, 256), $this->getTarget($bits));
-    }
-
-    /**
-     * @param BlockHeaderInterface[] $blocks
-     * @return int|string
-     */
-    public function sumWork(array $blocks)
-    {
-        $work = 0;
-        foreach ($blocks as $header) {
-            $work = $this->math->add($this->getWork($header->getBits()), $work);
-        }
-
-        return $work;
-    }
-
-    /**
-     * @param BlockHeaderInterface[] $blockSet1
-     * @param BlockHeaderInterface[] $blockSet2
-     * @return int
-     */
-    public function compareWork($blockSet1, $blockSet2)
-    {
-        return $this->math->cmp(
-            $this->sumWork($blockSet1),
-            $this->sumWork($blockSet2)
-        );
     }
 }

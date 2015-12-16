@@ -8,6 +8,7 @@ use BitWasp\Bitcoin\Math\Math;
 use BitWasp\Bitcoin\Serializer\Bloom\BloomFilterSerializer;
 use BitWasp\Bitcoin\Script\ScriptFactory;
 use BitWasp\Bitcoin\Serializable;
+use BitWasp\Bitcoin\Transaction\OutPointInterface;
 use BitWasp\Bitcoin\Transaction\TransactionInterface;
 use BitWasp\Buffertools\Buffer;
 
@@ -32,12 +33,12 @@ class BloomFilter extends Serializable
     /**
      * @var bool
      */
-    private $isEmpty = true;
+    private $empty = true;
 
     /**
      * @var bool
      */
-    private $isFull = false;
+    private $full = false;
 
     /**
      * @var int
@@ -140,6 +141,22 @@ class BloomFilter extends Serializable
     public function isUpdatePubKeyOnly()
     {
         return $this->checkFlag(self::UPDATE_P2PUBKEY_ONLY);
+    }
+
+    /**
+     * @return bool
+     */
+    public function isEmpty()
+    {
+        return $this->empty;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isFull()
+    {
+        return $this->full;
     }
 
     /**
@@ -250,7 +267,7 @@ class BloomFilter extends Serializable
      */
     public function insertData(Buffer $data)
     {
-        if ($this->isFull) {
+        if ($this->isFull()) {
             return $this;
         }
 
@@ -264,22 +281,12 @@ class BloomFilter extends Serializable
     }
 
     /**
-     * @param string $txid
-     * @param int $vout
-     * @return $this
+     * @param OutPointInterface $outPoint
+     * @return BloomFilter
      */
-    public function insertOutpoint($txid, $vout)
+    public function insertOutPoint(OutPointInterface $outPoint)
     {
-        return $this->insertData(new Buffer(pack('H64N', $txid, $vout)));
-    }
-
-    /**
-     * @param string $hash
-     * @return $this
-     */
-    public function insertHash($hash)
-    {
-        return $this->insertData(Buffer::hex($hash));
+        return $this->insertData($outPoint->getBuffer());
     }
 
     /**
@@ -288,11 +295,11 @@ class BloomFilter extends Serializable
      */
     public function containsData(Buffer $data)
     {
-        if ($this->isFull) {
+        if ($this->isFull()) {
             return true;
         }
 
-        if ($this->isEmpty) {
+        if ($this->isEmpty()) {
             return false;
         }
 
@@ -308,22 +315,12 @@ class BloomFilter extends Serializable
     }
 
     /**
-     * @param string $txid
-     * @param int $vout
+     * @param OutPointInterface $outPoint
      * @return bool
      */
-    public function containsUtxo($txid, $vout)
+    public function containsOutPoint(OutPointInterface $outPoint)
     {
-        return $this->containsData(new Buffer(pack('H64N', $txid, $vout), 36, $this->math));
-    }
-
-    /**
-     * @param string $hash
-     * @return bool
-     */
-    public function containsHash($hash)
-    {
-        return $this->containsData(Buffer::hex($hash, 32, $this->math));
+        return $this->containsData($outPoint->getBuffer());
     }
 
     /**
@@ -340,12 +337,13 @@ class BloomFilter extends Serializable
      */
     public function isRelevantAndUpdate(TransactionInterface $tx)
     {
+        $this->updateEmptyFull();
         $found = false;
-        if ($this->isFull) {
+        if ($this->isFull()) {
             return true;
         }
 
-        if ($this->isEmpty) {
+        if ($this->isEmpty()) {
             return false;
         }
 
@@ -357,20 +355,17 @@ class BloomFilter extends Serializable
 
         // Check for relevant output scripts. We add the outpoint to the filter if found.
         foreach ($tx->getOutputs() as $vout => $output) {
-            $opCode = null;
-            $pushData = new Buffer('', 0, $this->math);
-
             $script = $output->getScript();
             $parser = $script->getScriptParser();
-            while ($parser->next($opCode, $pushData)) {
-                if ($pushData->getSize() > 0 && $this->containsData($pushData)) {
+            foreach ($parser as $exec) {
+                if ($exec->isPush() && $this->containsData($exec->getData())) {
                     $found = true;
                     if ($this->isUpdateAll()) {
-                        $this->insertOutpoint($txHash->getHex(), $vout);
+                        $this->insertOutPoint($tx->makeOutPoint($vout));
                     } else if ($this->isUpdatePubKeyOnly()) {
                         $type = ScriptFactory::scriptPubKey()->classify($script);
                         if ($type->isMultisig() || $type->isPayToPublicKey()) {
-                            $this->insertOutpoint($txHash->getHex(), $vout);
+                            $this->insertOutPoint($tx->makeOutPoint($vout));
                         }
                     }
                 }
@@ -382,15 +377,13 @@ class BloomFilter extends Serializable
         }
 
         foreach ($tx->getInputs() as $txIn) {
-            if ($this->containsUtxo($txIn->getTransactionId(), $txIn->getVout())) {
+            if ($this->containsOutPoint($txIn->getOutPoint())) {
                 return true;
             }
 
             $parser = $txIn->getScript()->getScriptParser();
-            $opCode = null;
-            $pushData = new Buffer('', 0, $this->math);
-            while ($parser->next($opCode, $pushData)) {
-                if ($pushData->getSize() > 0 && $this->containsData($pushData)) {
+            foreach ($parser as $exec) {
+                if ($exec->isPush() > 0 && $this->containsData($exec->getData())) {
                     return true;
                 }
             }
@@ -407,12 +400,13 @@ class BloomFilter extends Serializable
         $full = true;
         $empty = true;
         for ($i = 0, $size = count($this->vFilter); $i < $size; $i++) {
-            $full &= ($this->vFilter[$i] === 0xff);
-            $empty &= ($this->vFilter[$i] === 0x0);
+            $byte = (int) $this->vFilter[$i];
+            $full &= ($byte === 0xff);
+            $empty &= ($byte === 0x0);
         }
 
-        $this->isFull = $full;
-        $this->isEmpty = $empty;
+        $this->full = (bool)$full;
+        $this->empty = (bool)$empty;
     }
 
     /**

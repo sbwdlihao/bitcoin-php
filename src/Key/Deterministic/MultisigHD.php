@@ -48,18 +48,28 @@ class MultisigHD
 
         // Sort here to guarantee calls to getKeys() returns keys in the same order as the redeemScript.
         if ($sort) {
-            $keys = Buffertools::sort($keys, function (HierarchicalKey $key) {
-                return $key->getPublicKey()->getBuffer();
-            });
+            $keys = $this->sortHierarchicalKeys($keys);
+        }
+
+        foreach ($keys as $key) {
+            $this->keys[] = $key;
         }
 
         $this->m = $m;
         $this->path = $path;
-        foreach ($keys as $key) {
-            $this->keys[] = $key;
-        }
         $this->sequences = $sequences;
         $this->sort = $sort;
+    }
+
+    /**
+     * @param HierarchicalKey[] $keys
+     * @return HierarchicalKey[]
+     */
+    private function sortHierarchicalKeys(array $keys)
+    {
+        return Buffertools::sort($keys, function (HierarchicalKey $key) {
+            return $key->getPublicKey()->getBuffer();
+        });
     }
 
     /**
@@ -74,7 +84,7 @@ class MultisigHD
      * Return the composite keys of this MultisigHD wallet entry.
      * This will strictly adhere to the choice on whether keys should be sorted, since this is done in the constructor.
      *
-     * @return \BitWasp\Bitcoin\Key\Deterministic\HierarchicalKey[]
+     * @return HierarchicalKey[]
      */
     public function getKeys()
     {
@@ -88,15 +98,16 @@ class MultisigHD
      */
     public function getRedeemScript()
     {
-        return ScriptFactory::multisig(
-            $this->m,
-            array_map(
-                function (HierarchicalKey $key) {
-                    return $key->getPublicKey();
-                },
-                $this->keys
-            )
-        );
+        return ScriptFactory::scriptPubKey()
+            ->multisig(
+                $this->m,
+                array_map(
+                    function (HierarchicalKey $key) {
+                        return $key->getPublicKey();
+                    },
+                    $this->keys
+                )
+            );
     }
 
     /**
@@ -115,18 +126,40 @@ class MultisigHD
      */
     public function deriveChild($sequence)
     {
+        $keys = array_map(
+            function (HierarchicalKey $hk) use ($sequence) {
+                return $hk->deriveChild($sequence);
+            },
+            $this->keys
+        );
+
+        if ($this->sort) {
+            $keys = $this->sortHierarchicalKeys($keys);
+        }
+
         return new self(
             $this->m,
             $this->path . '/' . $this->sequences->getNode($sequence),
-            array_map(
-                function (HierarchicalKey $hk) use ($sequence) {
-                    return $hk->deriveChild($sequence);
-                },
-                $this->keys
-            ),
+            $keys,
             $this->sequences,
             $this->sort
         );
+    }
+
+    /**
+     * @param array|\stdClass|\Traversable $list
+     * @return MultisigHD
+     */
+    public function deriveFromList($list)
+    {
+        HierarchicalKeySequence::validateListType($list);
+
+        $account = $this;
+        foreach ($list as $sequence) {
+            $account = $account->deriveChild($sequence);
+        }
+
+        return $account;
     }
 
     /**
@@ -137,13 +170,6 @@ class MultisigHD
      */
     public function derivePath($path)
     {
-        $decoded = explode('/', $this->keys[0]->decodePath($path));
-
-        $child = $this;
-        foreach ($decoded as $p) {
-            $child = $child->deriveChild($p);
-        }
-
-        return $child;
+        return $this->deriveFromList($this->sequences->decodePath($path));
     }
 }

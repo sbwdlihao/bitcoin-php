@@ -2,23 +2,33 @@
 
 namespace BitWasp\Bitcoin\Script\Consensus;
 
-use BitWasp\Bitcoin\Script\Interpreter\InterpreterFactory;
+use BitWasp\Bitcoin\Crypto\EcAdapter\Adapter\EcAdapterInterface;
+use BitWasp\Bitcoin\Flags;
+use BitWasp\Bitcoin\Script\Interpreter\Interpreter;
 use BitWasp\Bitcoin\Script\ScriptInterface;
 use BitWasp\Bitcoin\Transaction\TransactionInterface;
 
-class NativeConsensus
+class NativeConsensus implements ConsensusInterface
 {
     /**
-     * @var InterpreterFactory
+     * @var EcAdapterInterface
      */
-    private $factory;
+    private $adapter;
 
     /**
-     * @param InterpreterFactory $factory
+     * @var Flags
      */
-    public function __construct(InterpreterFactory $factory)
+    private $flags;
+
+    /**
+     * NativeConsensus constructor.
+     * @param EcAdapterInterface $ecAdapter
+     * @param Flags $flags
+     */
+    public function __construct(EcAdapterInterface $ecAdapter, Flags $flags)
     {
-        $this->factory = $factory;
+        $this->adapter = $ecAdapter;
+        $this->flags = $flags;
     }
 
     /**
@@ -30,11 +40,11 @@ class NativeConsensus
     public function verify(TransactionInterface $tx, ScriptInterface $scriptPubKey, $nInputToSign)
     {
         $inputs = $tx->getInputs();
-        return $this->factory->create($tx)
-            ->verify(
-                $inputs[$nInputToSign]->getScript(),
-                $scriptPubKey,
-                $nInputToSign
-            );
+        $interpreter = new Interpreter($this->adapter, $tx, $this->flags);
+        return $interpreter->verify(
+            $inputs[$nInputToSign]->getScript(),
+            $scriptPubKey,
+            $nInputToSign
+        );
     }
 }

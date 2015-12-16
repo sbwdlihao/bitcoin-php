@@ -3,17 +3,30 @@
 namespace BitWasp\Bitcoin\Script;
 
 use BitWasp\Bitcoin\Bitcoin;
+use BitWasp\Bitcoin\Crypto\EcAdapter\Adapter\EcAdapterInterface;
+use BitWasp\Bitcoin\Flags;
 use BitWasp\Bitcoin\Math\Math;
+use BitWasp\Bitcoin\Script\Consensus\BitcoinConsensus;
+use BitWasp\Bitcoin\Script\Consensus\NativeConsensus;
 use BitWasp\Bitcoin\Script\Factory\InputScriptFactory;
 use BitWasp\Bitcoin\Script\Factory\OutputScriptFactory;
+use BitWasp\Bitcoin\Script\Factory\P2shScriptFactory;
 use BitWasp\Bitcoin\Script\Factory\ScriptCreator;
 use BitWasp\Bitcoin\Script\Factory\ScriptInfoFactory;
+use BitWasp\Bitcoin\Script\Interpreter\InterpreterInterface;
 use BitWasp\Buffertools\Buffer;
-use BitWasp\Bitcoin\Crypto\EcAdapter\Key\KeyInterface;
-use BitWasp\Buffertools\Buffertools;
 
 class ScriptFactory
 {
+    /**
+     * @param Buffer|string $string
+     * @return Script
+     */
+    public static function fromHex($string)
+    {
+        return self::create($string instanceof Buffer ? $string : Buffer::hex($string))->getScript();
+    }
+
     /**
      * @param Buffer|null $buffer
      * @param Opcodes|null $opcodes
@@ -23,36 +36,6 @@ class ScriptFactory
     public static function create(Buffer $buffer = null, Opcodes $opcodes = null, Math $math = null)
     {
         return new ScriptCreator($math ?: Bitcoin::getMath(), $opcodes ?: new Opcodes(), $buffer);
-    }
-
-    /**
-     * @param int               $m
-     * @param KeyInterface[]    $keys
-     * @param bool              $sort
-     * @return ScriptInterface
-     */
-    public static function multisig($m, array $keys = array(), $sort = true)
-    {
-        if ($sort) {
-            $keys = Buffertools::sort($keys);
-        }
-
-        return self::scriptPubKey()->multisig($m, $keys);
-    }
-
-    /**
-     * @param int               $m
-     * @param KeyInterface[]    $keys
-     * @param bool              $sort
-     * @return ScriptInterface
-     */
-    public static function multisigNew($m, array $keys = array(), $sort = true)
-    {
-        if ($sort) {
-            $keys = Buffertools::sort($keys);
-        }
-
-        return self::scriptPubKey()->multisig($m, $keys);
     }
 
     /**
@@ -72,6 +55,14 @@ class ScriptFactory
     }
 
     /**
+     * @return P2shScriptFactory
+     */
+    public static function p2sh()
+    {
+        return new P2shScriptFactory(self::scriptPubKey());
+    }
+
+    /**
      * @param ScriptInterface $script
      * @param ScriptInterface|null $redeemScript
      * @return ScriptInfo\ScriptInfoInterface
@@ -81,12 +72,50 @@ class ScriptFactory
         return (new ScriptInfoFactory())->load($script, $redeemScript);
     }
 
-     /**
-     * @param Buffer|string $string
-     * @return Script
+
+    /**
+     * @return Flags
      */
-    public static function fromHex($string)
+    public static function defaultFlags()
     {
-        return self::create($string instanceof Buffer ? $string : Buffer::hex($string))->getScript();
+        return new Flags(
+            InterpreterInterface::VERIFY_P2SH | InterpreterInterface::VERIFY_STRICTENC | InterpreterInterface::VERIFY_DERSIG |
+            InterpreterInterface::VERIFY_LOW_S | InterpreterInterface::VERIFY_NULL_DUMMY | InterpreterInterface::VERIFY_SIGPUSHONLY |
+            InterpreterInterface::VERIFY_DISCOURAGE_UPGRADABLE_NOPS | InterpreterInterface::VERIFY_CLEAN_STACK |
+            InterpreterInterface::VERIFY_CHECKLOCKTIMEVERIFY | InterpreterInterface::VERIFY_CHECKSEQUENCEVERIFY
+        );
+    }
+
+    /**
+     * @param Flags|null $flags
+     * @param EcAdapterInterface|null $ecAdapter
+     * @return NativeConsensus
+     */
+    public static function getNativeConsensus(Flags $flags = null, EcAdapterInterface $ecAdapter = null)
+    {
+        return new NativeConsensus($ecAdapter ?: Bitcoin::getEcAdapter(), $flags ?: self::defaultFlags());
+    }
+
+    /**
+     * @param Flags|null $flags
+     * @return BitcoinConsensus
+     */
+    public static function getBitcoinConsensus(Flags $flags = null)
+    {
+        return new BitcoinConsensus($flags ?: self::defaultFlags());
+    }
+
+    /**
+     * @param Flags|null $flags
+     * @param EcAdapterInterface|null $ecAdapter
+     * @return \BitWasp\Bitcoin\Script\Consensus\ConsensusInterface
+     */
+    public static function consensus(Flags $flags = null, EcAdapterInterface $ecAdapter = null)
+    {
+        if (extension_loaded('bitcoinconsensus')) {
+            return self::getBitcoinConsensus($flags);
+        } else {
+            return self::getNativeConsensus($flags, $ecAdapter);
+        }
     }
 }

@@ -6,7 +6,7 @@ use BitWasp\Bitcoin\Script\ScriptInterface;
 use BitWasp\Bitcoin\Flags;
 use BitWasp\Bitcoin\Transaction\TransactionInterface;
 
-class BitcoinConsensus
+class BitcoinConsensus implements ConsensusInterface
 {
     /**
      * @var Flags
@@ -32,7 +32,7 @@ class BitcoinConsensus
         $error = 0;
         return (bool) bitcoinconsensus_verify_script(
             $scriptPubKey->getBinary(),
-            $tx->getbinary(),
+            $tx->getBinary(),
             $nInputToSign,
             $this->flags->getFlags(),
             $error
